@@ -154,6 +154,29 @@ def stage_bclc(
     }
 
 
+def calculate_metrics(tumor_size_cm: float = 0.0, tumor_count: int = 1,
+                      ecog_ps: int = 0, child_pugh: str = "A",
+                      child_pugh_class: Optional[str] = None,
+                      portal_invasion: bool = False,
+                      portal_vein_invasion: Optional[bool] = None,
+                      extrahepatic_spread: bool = False,
+                      lymph_node_metastasis: bool = False,
+                      vascular_invasion: bool = False, **kwargs) -> Dict[str, Any]:
+    """Compatibility alias wrapping stage_bclc."""
+    cp = child_pugh_class if child_pugh_class is not None else child_pugh
+    pvi = portal_vein_invasion if portal_vein_invasion is not None else portal_invasion
+    return stage_bclc(
+        tumor_count=tumor_count,
+        tumor_size_cm=tumor_size_cm,
+        child_pugh_class=cp,
+        ecog_ps=ecog_ps,
+        portal_vein_invasion=pvi,
+        extrahepatic_spread=extrahepatic_spread,
+        lymph_node_metastasis=lymph_node_metastasis,
+        vascular_invasion=vascular_invasion,
+    )
+
+
 def _determine_stage(
     count, size, cp, ecog, portal, extrahepatic, nodes, vascular
 ) -> str:
