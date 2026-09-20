@@ -56,6 +56,8 @@ jobs:
           grep -q 'data-theme="light"' index.html
           grep -q 'bclc-theme' index.html
           grep -q 'id="tab-input"' index.html
+          grep -q '>Analyze case</button>' index.html
+          grep -q 'analyzeVisible' index.html
           grep -q 'layoutFit' index.html
 
       - name: Start local site
@@ -74,6 +76,7 @@ jobs:
           test -n "$BROWSER"
           "$BROWSER"             --headless=new             --no-sandbox             --disable-gpu             --disable-dev-shm-usage             --virtual-time-budget=60000             --dump-dom "http://127.0.0.1:8000/?smoke=1" > /tmp/dom.html
           grep -q 'data-smoke="ok"' /tmp/dom.html
+          grep -q 'data-analyze-ready="ok"' /tmp/dom.html
 
       - name: Verify compact device viewports do not scroll
         run: |
@@ -103,6 +106,10 @@ jobs:
             test "$success" = true
             if ! grep -q 'data-layout-fit="ok"' "/tmp/layout-$safe_name.html"; then
               grep -o 'data-layout-fit="[^"]*"' "/tmp/layout-$safe_name.html" || true
+              exit 1
+            fi
+            if ! grep -q 'data-analyze-visible="ok"' "/tmp/layout-$safe_name.html"; then
+              grep -o 'data-analyze-visible="[^"]*"' "/tmp/layout-$safe_name.html" || true
               exit 1
             fi
           done
