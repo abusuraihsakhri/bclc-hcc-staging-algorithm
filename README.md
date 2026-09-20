@@ -30,6 +30,7 @@ Child-Pugh class is retained as descriptive/compatibility input, but it is not u
 - Longitudinal stage tracking and current OPTN HCC downstaging screening helper.
 - Dependency-free stress/smoke simulator.
 - Modern light-first browser UI with an explicit persistent dark-mode option.
+- Single-screen compact layouts for phones, tablets, and short laptop viewports, with no document-level scrolling in tested compact sizes.
 - Static browser UI that executes the same Python module through Pyodide.
 - GitHub Actions regression matrix for Python 3.10–3.14 and a headless-browser Pyodide smoke test.
 
@@ -73,7 +74,7 @@ print(result["milan_criteria_eligible"])
 
 ## Browser application
 
-`index.html` provides a responsive light-first interface with an explicit light/dark theme toggle, compact stage-defining inputs, accessible focus states, and a sticky result panel on larger screens. It loads Pyodide 0.29.5 and imports the repository's `bclc_staging.py` directly, so the browser UI does not maintain a separate JavaScript copy of the staging rules.
+`index.html` provides a responsive light-first interface with an explicit light/dark theme toggle, compact stage-defining inputs, accessible focus states, and a sticky result panel on larger screens. Compact devices use an Inputs/Result panel switch and height-aware spacing so tested phone, tablet, landscape-phone, and short-laptop viewports fit without document-level scrolling. It loads Pyodide 0.29.5 and imports the repository's `bclc_staging.py` directly, so the browser UI does not maintain a separate JavaScript copy of the staging rules.
 
 Case inputs are not stored or submitted by the application. The selected UI theme may be stored locally in the browser. Initial page load downloads the Pyodide runtime from jsDelivr; calculations then execute in the browser.
 
