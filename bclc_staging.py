@@ -1,82 +1,54 @@
 #!/usr/bin/env python3
+"""BCLC 2026 staging helper for hepatocellular carcinoma.
+
+Implements stage-defining features from the BCLC 2026 strategy update for
+education, research, and reproducible data processing. It is not a substitute
+for multidisciplinary clinical assessment.
+
+Reference: Reig M, et al. J Hepatol. 2026;84(3):631-654.
+doi:10.1016/j.jhep.2025.10.020
 """
-Barcelona Clinic Liver Cancer (BCLC) Staging Algorithm
 
-Stages hepatocellular carcinoma (HCC) into stages 0, A, B, C, D based on
-tumor characteristics, liver function (Child-Pugh), and performance status (ECOG).
-Provides treatment allocation per EASL-AASLD guidelines.
-
-Staging criteria:
-  Stage 0 (Very Early): Single ≤2cm, Child-Pugh A, ECOG 0
-  Stage A (Early):      Single or ≤3 nodules each ≤3cm, Child-Pugh A-B, ECOG 0
-  Stage B (Intermediate): Multinodular, Child-Pugh A-B, ECOG 0
-  Stage C (Advanced):   Portal invasion/N1/M1, Child-Pugh A-B, ECOG 1-2
-  Stage D (Terminal):   Any tumor, Child-Pugh C, ECOG 3-4
-
-Treatment by stage:
-  0 → Ablation/Resection
-  A → Resection / Transplant / Ablation
-  B → TACE (Transarterial chemoembolization)
-  C → Systemic therapy
-  D → Best supportive care
-
-Zero-dependency Python implementation.
-License: MIT
-"""
+from __future__ import annotations
 
 import argparse
 import csv
 import json
-import sys
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
-
-# ---------------------------------------------------------------------------
-# BCLC stage definitions
-# ---------------------------------------------------------------------------
 
 BCLC_STAGES = {
     "0": {
         "name": "Very Early",
-        "treatment": "Ablation or Resection",
-        "median_survival_months": ">60",
-        "five_year_survival_pct": 70.0,
+        "treatment": "Ablation or resection; transplant in selected candidates",
+        "expected_survival": ">5 years after effective first treatment",
     },
     "A": {
         "name": "Early",
-        "treatment": "Resection / Liver Transplant / Ablation",
-        "median_survival_months": ">36",
-        "five_year_survival_pct": 50.0,
+        "treatment": "Resection, ablation, or liver transplantation according to tumor and liver context",
+        "expected_survival": ">5 years after effective first treatment",
     },
     "B": {
         "name": "Intermediate",
-        "treatment": "TACE (Transarterial Chemoembolization)",
-        "median_survival_months": "20",
-        "five_year_survival_pct": 25.0,
+        "treatment": "Subgroup assessment for transplant, locoregional therapy, or systemic therapy",
+        "expected_survival": ">2.5 years after effective first treatment",
     },
     "C": {
         "name": "Advanced",
-        "treatment": "Systemic Therapy (Atezolizumab+Bevacizumab, Sorafenib, Lenvatinib)",
-        "median_survival_months": "12",
-        "five_year_survival_pct": 10.0,
+        "treatment": "Systemic therapy is the usual evidence-based first option; individualize in MDT review",
+        "expected_survival": "approximately 2 years after effective first treatment",
     },
     "D": {
-        "name": "Terminal",
-        "treatment": "Best Supportive Care",
-        "median_survival_months": "<3",
-        "five_year_survival_pct": 0.0,
+        "name": "End Stage",
+        "treatment": "Supportive/palliative care when transplantation is not an option",
+        "expected_survival": "<1 year",
     },
 }
 
-# Milan criteria for transplant eligibility
 MILAN_SINGLE_MAX_CM = 5.0
 MILAN_MULTI_MAX_COUNT = 3
 MILAN_MULTI_MAX_CM = 3.0
 
-
-# ---------------------------------------------------------------------------
-# Core staging logic
-# ---------------------------------------------------------------------------
 
 def stage_bclc(
     tumor_count: int = 1,
@@ -87,82 +59,195 @@ def stage_bclc(
     extrahepatic_spread: bool = False,
     lymph_node_metastasis: bool = False,
     vascular_invasion: bool = False,
+    liver_decompensation: bool = False,
+    transplant_candidate: Optional[bool] = None,
+    ecog_cancer_related: bool = True,
 ) -> Dict[str, Any]:
+    """Assign a BCLC 2026 stage from stage-defining inputs.
+
+    Child-Pugh class is retained for compatibility and descriptive output, but
+    it does not define stage by itself. If decompensation is present,
+    transplant candidacy must be supplied because BCLC-D cannot safely be
+    inferred from Child-Pugh class alone.
+
+    vascular_invasion is interpreted as macrovascular invasion.
     """
-    Stage HCC using the BCLC algorithm.
+    cp = str(child_pugh_class).strip().upper()
+    if cp not in {"A", "B", "C"}:
+        raise ValueError("Child-Pugh class must be A, B, or C")
+    if isinstance(tumor_count, bool) or not isinstance(tumor_count, int) or tumor_count < 1:
+        raise ValueError("Tumor count must be an integer >= 1 for confirmed HCC")
+    if (
+        isinstance(tumor_size_cm, bool)
+        or not isinstance(tumor_size_cm, (int, float))
+        or tumor_size_cm <= 0
+    ):
+        raise ValueError("Largest tumor diameter must be > 0 cm for confirmed HCC")
+    if isinstance(ecog_ps, bool) or not isinstance(ecog_ps, int) or not 0 <= ecog_ps <= 4:
+        raise ValueError("ECOG PS must be an integer from 0 to 4")
+    if transplant_candidate not in {None, True, False}:
+        raise ValueError("transplant_candidate must be true, false, or null")
+    if liver_decompensation and transplant_candidate is None:
+        raise ValueError(
+            "transplant_candidate is required when liver_decompensation=True; "
+            "decompensation alone does not establish BCLC-D"
+        )
 
-    Parameters:
-        tumor_count: Number of tumor nodules (default 1)
-        tumor_size_cm: Largest tumor diameter in cm
-        child_pugh_class: 'A', 'B', or 'C'
-        ecog_ps: ECOG performance status 0-4
-        portal_vein_invasion: Portal vein invasion present
-        extrahepatic_spread: Extrahepatic metastases (M1)
-        lymph_node_metastasis: Regional/distant lymph node involvement (N1)
-        vascular_invasion: Micro or macro vascular invasion
+    size = float(tumor_size_cm)
+    macrovascular = bool(portal_vein_invasion or vascular_invasion)
+    metastatic = bool(extrahepatic_spread or lymph_node_metastasis)
 
-    Returns:
-        Dict with BCLC stage, treatment, survival estimates, and details.
-    """
-    # Validate inputs
-    cp = child_pugh_class.strip().upper()
-    if cp not in ("A", "B", "C"):
-        raise ValueError(f"Invalid Child-Pugh class '{child_pugh_class}'. Use A, B, or C.")
-    if ecog_ps < 0 or ecog_ps > 4:
-        raise ValueError(f"ECOG PS must be 0-4, got {ecog_ps}")
-    if tumor_count < 0:
-        raise ValueError("Tumor count must be non-negative")
-    if tumor_size_cm < 0:
-        raise ValueError("Tumor size must be non-negative")
-
-    # Determine stage
     stage = _determine_stage(
-        tumor_count, tumor_size_cm, cp, ecog_ps,
-        portal_vein_invasion, extrahepatic_spread,
-        lymph_node_metastasis, vascular_invasion,
+        count=tumor_count,
+        size=size,
+        ecog=ecog_ps,
+        macrovascular_invasion=macrovascular,
+        metastatic_spread=metastatic,
+        liver_decompensation=liver_decompensation,
+        transplant_candidate=transplant_candidate,
+        ecog_cancer_related=ecog_cancer_related,
     )
-
-    stage_info = BCLC_STAGES[stage]
-
-    # Milan criteria
-    milan_eligible = _check_milan(tumor_count, tumor_size_cm)
-
-    # Transplant eligibility (Milan + adequate liver function)
-    transplant_eligible = milan_eligible and cp in ("A", "B") and ecog_ps <= 1
+    milan_eligible = _check_milan(
+        tumor_count,
+        size,
+        macrovascular_invasion=macrovascular,
+        extrahepatic_spread=extrahepatic_spread,
+        lymph_node_metastasis=lymph_node_metastasis,
+    )
+    info = BCLC_STAGES[stage]
 
     return {
         "tool": "bclc-hcc-staging-algorithm",
+        "bclc_version": "2026",
         "bclc_stage": stage,
-        "stage_name": stage_info["name"],
-        "treatment_allocation": stage_info["treatment"],
-        "median_survival_months": stage_info["median_survival_months"],
-        "five_year_survival_pct": stage_info["five_year_survival_pct"],
+        "stage_name": info["name"],
+        "classification": f"BCLC Stage {stage} ({info['name']})",
+        "treatment_allocation": info["treatment"],
+        "expected_survival": info["expected_survival"],
+        "median_survival_months": None,
+        "five_year_survival_pct": None,
         "milan_criteria_eligible": milan_eligible,
-        "transplant_eligible": transplant_eligible,
-        "classification": f"BCLC Stage {stage} ({stage_info['name']})",
-        "clinical_recommendation": _recommendation(stage, milan_eligible, cp, ecog_ps),
+        "transplant_eligible": transplant_candidate,
+        "transplant_assessment": (
+            "Externally supplied transplant candidacy"
+            if transplant_candidate is not None
+            else "Not determined: requires transplant-center assessment beyond Milan criteria"
+        ),
+        "clinical_recommendation": _recommendation(
+            stage, liver_decompensation, transplant_candidate
+        ),
         "inputs": {
             "tumor_count": tumor_count,
-            "tumor_size_cm": tumor_size_cm,
+            "tumor_size_cm": size,
             "child_pugh_class": cp,
             "ecog_ps": ecog_ps,
-            "portal_vein_invasion": portal_vein_invasion,
-            "extrahepatic_spread": extrahepatic_spread,
-            "lymph_node_metastasis": lymph_node_metastasis,
-            "vascular_invasion": vascular_invasion,
+            "ecog_cancer_related": bool(ecog_cancer_related),
+            "portal_vein_invasion": bool(portal_vein_invasion),
+            "vascular_invasion": bool(vascular_invasion),
+            "extrahepatic_spread": bool(extrahepatic_spread),
+            "lymph_node_metastasis": bool(lymph_node_metastasis),
+            "liver_decompensation": bool(liver_decompensation),
+            "transplant_candidate": transplant_candidate,
         },
+        "limitations": [
+            "Assumes confirmed HCC and current imaging-defined tumor burden.",
+            "ECOG-based upstaging should reflect HCC-attributable symptoms.",
+            "Treatment allocation is a stage-level summary, not a prescription.",
+            "Milan criteria alone do not establish transplant eligibility.",
+        ],
     }
 
 
-def calculate_metrics(tumor_size_cm: float = 0.0, tumor_count: int = 1,
-                      ecog_ps: int = 0, child_pugh: str = "A",
-                      child_pugh_class: Optional[str] = None,
-                      portal_invasion: bool = False,
-                      portal_vein_invasion: Optional[bool] = None,
-                      extrahepatic_spread: bool = False,
-                      lymph_node_metastasis: bool = False,
-                      vascular_invasion: bool = False, **kwargs) -> Dict[str, Any]:
-    """Compatibility alias wrapping stage_bclc."""
+def _determine_stage(
+    *,
+    count: int,
+    size: float,
+    ecog: int,
+    macrovascular_invasion: bool,
+    metastatic_spread: bool,
+    liver_decompensation: bool,
+    transplant_candidate: Optional[bool],
+    ecog_cancer_related: bool,
+) -> str:
+    if ecog_cancer_related and ecog >= 3:
+        return "D"
+    if liver_decompensation and transplant_candidate is False:
+        return "D"
+    if macrovascular_invasion or metastatic_spread:
+        return "C"
+    if ecog_cancer_related and ecog in {1, 2}:
+        return "C"
+    if count == 1:
+        return "0" if size <= 2.0 else "A"
+    if count <= 3 and size <= 3.0:
+        return "A"
+    return "B"
+
+
+def _check_milan(
+    count: int,
+    size: float,
+    macrovascular_invasion: bool = False,
+    extrahepatic_spread: bool = False,
+    lymph_node_metastasis: bool = False,
+) -> bool:
+    """Check radiologic Milan tumor-burden criteria and spread exclusions."""
+    if count < 1 or size <= 0:
+        return False
+    if macrovascular_invasion or extrahepatic_spread or lymph_node_metastasis:
+        return False
+    if count == 1:
+        return size <= MILAN_SINGLE_MAX_CM
+    return count <= MILAN_MULTI_MAX_COUNT and size <= MILAN_MULTI_MAX_CM
+
+
+def _recommendation(
+    stage: str,
+    liver_decompensation: bool,
+    transplant_candidate: Optional[bool],
+) -> str:
+    if liver_decompensation and transplant_candidate:
+        return (
+            "Decompensated liver disease with externally established transplant "
+            "candidacy: prioritize transplant-center and multidisciplinary review."
+        )
+    if stage == "D":
+        return (
+            "End-stage pathway: supportive and palliative care are central when "
+            "transplantation is not an option; reassess reversible contributors."
+        )
+    if stage == "C":
+        return (
+            "Advanced-stage pathway: systemic therapy is the usual evidence-based "
+            "first option; regimen choice requires current guideline and liver-function review."
+        )
+    if stage == "B":
+        return (
+            "Intermediate-stage pathway: assess transplant criteria, tumor distribution, "
+            "portal flow, liver reserve, and locoregional versus systemic treatment suitability."
+        )
+    if stage == "A":
+        return (
+            "Early-stage pathway: evaluate resection, ablation, and/or liver "
+            "transplantation according to tumor pattern and liver status."
+        )
+    return (
+        "Very-early-stage pathway: curative-intent ablation or resection is commonly "
+        "considered; liver and transplant context may alter the preferred option."
+    )
+
+
+def calculate_metrics(
+    tumor_size_cm: float = 0.0,
+    tumor_count: int = 1,
+    ecog_ps: int = 0,
+    child_pugh: str = "A",
+    child_pugh_class: Optional[str] = None,
+    portal_invasion: bool = False,
+    portal_vein_invasion: Optional[bool] = None,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """Backward-compatible wrapper around stage_bclc."""
     cp = child_pugh_class if child_pugh_class is not None else child_pugh
     pvi = portal_vein_invasion if portal_vein_invasion is not None else portal_invasion
     return stage_bclc(
@@ -171,174 +256,85 @@ def calculate_metrics(tumor_size_cm: float = 0.0, tumor_count: int = 1,
         child_pugh_class=cp,
         ecog_ps=ecog_ps,
         portal_vein_invasion=pvi,
-        extrahepatic_spread=extrahepatic_spread,
-        lymph_node_metastasis=lymph_node_metastasis,
-        vascular_invasion=vascular_invasion,
+        **kwargs,
     )
 
 
-def _determine_stage(
-    count, size, cp, ecog, portal, extrahepatic, nodes, vascular
-) -> str:
-    """
-    Apply the BCLC decision tree.
-
-    Priority order (top-down):
-    1. Child-Pugh C or ECOG 3-4 → Stage D (terminal)
-    2. Macrovascular invasion, extrahepatic spread, or N1 → Stage C (advanced)
-       (when ECOG 1-2 and Child-Pugh A-B)
-    3. ECOG 1-2 with Child-Pugh A-B → Stage C (advanced)
-    4. Multinodular or Child-Pugh B → Stage B (intermediate)
-    5. Single ≤2cm, Child-Pugh A, ECOG 0 → Stage 0 (very early)
-    6. Single or ≤3 nodules ≤3cm, Child-Pugh A-B, ECOG 0 → Stage A (early)
-    7. Default → Stage B
-    """
-    # Stage D: terminal
-    if cp == "C":
-        return "D"
-    if ecog >= 3:
-        return "D"
-
-    # Stage C: advanced - portal/hepatic vein invasion, extrahepatic, nodes
-    has_major_invasion = portal or vascular
-    has_metastasis = extrahepatic or nodes
-
-    if has_major_invasion or has_metastasis:
-        if cp in ("A", "B") and ecog <= 2:
-            return "C"
-
-    # ECOG 1-2 with preserved liver function → Stage C
-    if ecog >= 1 and cp in ("A", "B"):
-        return "C"
-
-    # Stage B: intermediate - multinodular, or larger tumors, or Child-Pugh B
-    if cp == "B":
-        return "B"
-    if count > 3:
-        return "B"
-    if count > 1 and size > 3.0:
-        return "B"
-
-    # Stage 0: very early - single ≤2cm, Child-Pugh A, ECOG 0
-    if count == 1 and size <= 2.0 and cp == "A" and ecog == 0:
-        return "0"
-
-    # Stage A: early - single tumor or up to 3 nodules each ≤3cm
-    if cp in ("A", "B") and ecog == 0:
-        if count == 1 and size <= 5.0:
-            return "A"
-        if count <= 3 and size <= 3.0:
-            return "A"
-
-    # Default fallback
-    return "B"
-
-
-def _check_milan(count: int, size: float) -> bool:
-    """Check if tumor meets Milan criteria for transplant."""
-    if count == 1 and size <= MILAN_SINGLE_MAX_CM:
+def _parse_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        raise ValueError("Boolean value cannot be null")
+    normalized = str(value).strip().lower()
+    if normalized in {"true", "1", "yes", "y", "t"}:
         return True
-    if count <= MILAN_MULTI_MAX_COUNT and size <= MILAN_MULTI_MAX_CM:
-        return True
-    return False
+    if normalized in {"false", "0", "no", "n", "f"}:
+        return False
+    raise ValueError(f"Invalid boolean value: {value!r}")
 
 
-def _recommendation(stage: str, milan: bool, cp: str, ecog: int) -> str:
-    """Generate treatment recommendation."""
-    if stage == "D":
-        return (
-            "Terminal stage. Best supportive care recommended. "
-            "Hospice referral and symptom management. "
-            "Transplant evaluation if Child-Pugh C is the sole criterion."
-        )
-    if stage == "C":
-        return (
-            "Advanced HCC. First-line systemic therapy: atezolizumab + bevacizumab "
-            "(IMbrave150 regimen). Alternatives: sorafenib or lenvatinib. "
-            "Consider clinical trial enrollment."
-        )
-    if stage == "B":
-        if milan:
-            return (
-                "Intermediate HCC meeting Milan criteria. TACE as first-line therapy. "
-                "Consider downstaging to transplant eligibility. "
-                "Multidisciplinary tumor board evaluation recommended."
-            )
-        return (
-            "Intermediate HCC outside Milan criteria. TACE recommended. "
-            "Re-assess for transplant eligibility after downstaging. "
-            "Consider combination therapy (TACE + systemic) for extensive disease."
-        )
-    if stage == "A":
-        if milan:
-            return (
-                "Early HCC meeting Milan criteria. Liver transplantation is preferred "
-                "(best long-term outcome). If not transplant candidate: surgical resection "
-                "or local ablation (RFA/MWA)."
-            )
-        return (
-            "Early HCC outside Milan criteria. Surgical resection if adequate liver "
-            "reserve and no portal hypertension. Consider living donor transplant. "
-            "Local ablation as alternative."
-        )
-    # Stage 0
-    return (
-        "Very early HCC. Surgical resection or local ablation (RFA/MWA) with "
-        "curative intent. Excellent prognosis with 5-year survival ~70%. "
-        "Standard post-treatment surveillance."
-    )
+def _parse_optional_bool(value: Any) -> Optional[bool]:
+    if value is None or str(value).strip() == "":
+        return None
+    return _parse_bool(value)
 
 
-# ---------------------------------------------------------------------------
-# Batch processing
-# ---------------------------------------------------------------------------
+def _required(row: Dict[str, str], field: str, row_number: int) -> str:
+    value = row.get(field)
+    if value is None or str(value).strip() == "":
+        raise ValueError(f"row {row_number}: missing required field '{field}'")
+    return str(value).strip()
+
 
 def process_batch(input_csv: str, output_csv: str) -> int:
-    """Process a CSV of patients and write BCLC staging results."""
-    with open(input_csv, mode="r", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
+    """Process a CSV cohort and write BCLC results plus row-level errors."""
+    with open(input_csv, "r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
         fieldnames = list(reader.fieldnames or [])
         rows = list(reader)
 
-    out_fields = fieldnames + [
-        "bclc_stage", "stage_name", "treatment_allocation",
-        "milan_criteria_eligible", "transplant_eligible",
-        "five_year_survival_pct", "clinical_recommendation",
+    result_fields = [
+        "bclc_stage",
+        "stage_name",
+        "treatment_allocation",
+        "expected_survival",
+        "milan_criteria_eligible",
+        "transplant_eligible",
+        "clinical_recommendation",
+        "error",
     ]
+    out_fields = list(dict.fromkeys(fieldnames + result_fields))
     out_rows = []
-    for r in rows:
-        try:
-            res = stage_bclc(
-                tumor_count=int(r.get("tumor_count", 1)),
-                tumor_size_cm=float(r.get("tumor_size_cm", 0)),
-                child_pugh_class=r.get("child_pugh_class", "A"),
-                ecog_ps=int(r.get("ecog_ps", 0)),
-                portal_vein_invasion=_parse_bool(r.get("portal_vein_invasion", "false")),
-                extrahepatic_spread=_parse_bool(r.get("extrahepatic_spread", "false")),
-                lymph_node_metastasis=_parse_bool(r.get("lymph_node_metastasis", "false")),
-                vascular_invasion=_parse_bool(r.get("vascular_invasion", "false")),
-            )
-            row_dict = dict(r)
-            row_dict["bclc_stage"] = res["bclc_stage"]
-            row_dict["stage_name"] = res["stage_name"]
-            row_dict["treatment_allocation"] = res["treatment_allocation"]
-            row_dict["milan_criteria_eligible"] = res["milan_criteria_eligible"]
-            row_dict["transplant_eligible"] = res["transplant_eligible"]
-            row_dict["five_year_survival_pct"] = res["five_year_survival_pct"]
-            row_dict["clinical_recommendation"] = res["clinical_recommendation"]
-        except (ValueError, KeyError) as e:
-            row_dict = dict(r)
-            row_dict["bclc_stage"] = f"ERROR: {e}"
-            row_dict["stage_name"] = ""
-            row_dict["treatment_allocation"] = ""
-            row_dict["milan_criteria_eligible"] = ""
-            row_dict["transplant_eligible"] = ""
-            row_dict["five_year_survival_pct"] = ""
-            row_dict["clinical_recommendation"] = ""
-        out_rows.append(row_dict)
 
-    with open(output_csv, mode="w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=out_fields)
+    for row_number, row in enumerate(rows, start=2):
+        out = dict(row)
+        try:
+            decomp = _parse_bool(row.get("liver_decompensation", "false"))
+            transplant = _parse_optional_bool(row.get("transplant_candidate", ""))
+            result = stage_bclc(
+                tumor_count=int(_required(row, "tumor_count", row_number)),
+                tumor_size_cm=float(_required(row, "tumor_size_cm", row_number)),
+                child_pugh_class=row.get("child_pugh_class", "A") or "A",
+                ecog_ps=int(row.get("ecog_ps", 0) or 0),
+                ecog_cancer_related=_parse_bool(row.get("ecog_cancer_related", "true")),
+                portal_vein_invasion=_parse_bool(row.get("portal_vein_invasion", "false")),
+                extrahepatic_spread=_parse_bool(row.get("extrahepatic_spread", "false")),
+                lymph_node_metastasis=_parse_bool(row.get("lymph_node_metastasis", "false")),
+                vascular_invasion=_parse_bool(row.get("vascular_invasion", "false")),
+                liver_decompensation=decomp,
+                transplant_candidate=transplant,
+            )
+            for key in result_fields[:-1]:
+                out[key] = result[key]
+            out["error"] = ""
+        except (ValueError, TypeError, KeyError) as exc:
+            for key in result_fields[:-1]:
+                out[key] = ""
+            out["error"] = str(exc)
+        out_rows.append(out)
+
+    with open(output_csv, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=out_fields)
         writer.writeheader()
         writer.writerows(out_rows)
 
@@ -346,65 +342,59 @@ def process_batch(input_csv: str, output_csv: str) -> int:
     return len(out_rows)
 
 
-def _parse_bool(val) -> bool:
-    """Parse various boolean representations."""
-    if isinstance(val, bool):
-        return val
-    s = str(val).strip().lower()
-    return s in ("true", "1", "yes", "y", "t")
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-def main(argv=None):
+def main(argv: Optional[list[str]] = None) -> None:
     parser = argparse.ArgumentParser(
-        description="BCLC (Barcelona Clinic Liver Cancer) Staging Algorithm"
+        description="BCLC 2026 hepatocellular carcinoma staging helper"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Single evaluation
-    sp = subparsers.add_parser("single", help="Stage a single HCC patient")
-    sp.add_argument("--tumor-count", type=int, default=1,
-                    help="Number of tumor nodules (default: 1)")
-    sp.add_argument("--tumor-size-cm", type=float, default=0.0,
-                    help="Largest tumor diameter in cm")
-    sp.add_argument("--child-pugh-class", default="A",
-                    choices=["A", "B", "C"],
-                    help="Child-Pugh class (default: A)")
-    sp.add_argument("--ecog-ps", type=int, default=0,
-                    help="ECOG performance status 0-4 (default: 0)")
-    sp.add_argument("--portal-vein-invasion", action="store_true",
-                    help="Portal vein invasion present")
-    sp.add_argument("--extrahepatic-spread", action="store_true",
-                    help="Extrahepatic metastases present")
-    sp.add_argument("--lymph-node-metastasis", action="store_true",
-                    help="Lymph node metastasis present")
-    sp.add_argument("--vascular-invasion", action="store_true",
-                    help="Vascular invasion present")
+    single = subparsers.add_parser("single", help="Stage a single confirmed HCC case")
+    single.add_argument("--tumor-count", type=int, default=1)
+    single.add_argument("--tumor-size-cm", type=float, required=True)
+    single.add_argument("--child-pugh-class", default="A", choices=["A", "B", "C"])
+    single.add_argument("--ecog-ps", type=int, default=0)
+    single.add_argument("--ecog-not-cancer-related", action="store_true")
+    single.add_argument("--portal-vein-invasion", action="store_true")
+    single.add_argument("--extrahepatic-spread", action="store_true")
+    single.add_argument("--lymph-node-metastasis", action="store_true")
+    single.add_argument("--vascular-invasion", action="store_true")
+    single.add_argument("--liver-decompensation", action="store_true")
+    transplant = single.add_mutually_exclusive_group()
+    transplant.add_argument(
+        "--transplant-candidate", dest="transplant_candidate", action="store_true"
+    )
+    transplant.add_argument(
+        "--not-transplant-candidate", dest="transplant_candidate", action="store_false"
+    )
+    single.set_defaults(transplant_candidate=None)
 
-    # Batch processing
-    bp = subparsers.add_parser("batch", help="Batch process CSV file")
-    bp.add_argument("-i", "--input", required=True, help="Input CSV file")
-    bp.add_argument("-o", "--output", default="results.csv", help="Output CSV file")
+    batch = subparsers.add_parser("batch", help="Batch-process a CSV file")
+    batch.add_argument("-i", "--input", required=True)
+    batch.add_argument("-o", "--output", default="results.csv")
 
     args = parser.parse_args(argv)
+    if args.command == "batch":
+        process_batch(args.input, args.output)
+        return
 
-    if args.command == "single":
+    try:
         result = stage_bclc(
             tumor_count=args.tumor_count,
             tumor_size_cm=args.tumor_size_cm,
             child_pugh_class=args.child_pugh_class,
             ecog_ps=args.ecog_ps,
+            ecog_cancer_related=not args.ecog_not_cancer_related,
             portal_vein_invasion=args.portal_vein_invasion,
             extrahepatic_spread=args.extrahepatic_spread,
             lymph_node_metastasis=args.lymph_node_metastasis,
             vascular_invasion=args.vascular_invasion,
+            liver_decompensation=args.liver_decompensation,
+            transplant_candidate=args.transplant_candidate,
         )
-        print(json.dumps(result, indent=2))
-    elif args.command == "batch":
-        process_batch(args.input, args.output)
+    except ValueError as exc:
+        parser.error(str(exc))
+        return
+    print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":
