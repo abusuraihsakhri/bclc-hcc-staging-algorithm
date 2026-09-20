@@ -3,6 +3,9 @@ from dataclasses import dataclass
 from typing import List
 
 
+STAGE_ORDER = {"0": 0, "A": 1, "B": 2, "C": 3, "D": 4}
+
+
 @dataclass
 class BCLCStagingRecord:
     patient_id: str
@@ -22,76 +25,61 @@ class BCLCTracker:
         self.records: List[BCLCStagingRecord] = []
 
     def add_staging(self, patient_id: str, date: str, bclc_stage: str, **kwargs) -> BCLCStagingRecord:
+        stage = str(bclc_stage).upper()
+        if stage not in STAGE_ORDER:
+            raise ValueError(f"Invalid BCLC stage: {bclc_stage!r}")
         rec = BCLCStagingRecord(
-            patient_id=patient_id, date=date, bclc_stage=bclc_stage.upper(), **kwargs,
+            patient_id=patient_id,
+            date=date,
+            bclc_stage=stage,
+            **kwargs,
         )
+        if not 0 <= rec.ecog_ps <= 4:
+            raise ValueError("ECOG PS must be 0-4")
         self.records.append(rec)
         return rec
 
     def get_timeline(self, patient_id: str) -> List[BCLCStagingRecord]:
         return sorted(
-            [r for r in self.records if r.patient_id == patient_id],
-            key=lambda r: r.date,
+            [record for record in self.records if record.patient_id == patient_id],
+            key=lambda record: record.date,
         )
 
     def detect_progression(self, patient_id: str) -> List[dict]:
         timeline = self.get_timeline(patient_id)
-        if len(timeline) < 2:
-            return []
-        stage_order = {"0": 0, "A": 1, "B": 2, "C": 3, "D": 4}
         alerts = []
-        for i in range(1, len(timeline)):
-            prev = stage_order.get(timeline[i - 1].bclc_stage, 0)
-            curr = stage_order.get(timeline[i].bclc_stage, 0)
-            if curr > prev:
-                alerts.append({
-                    "type": "BCLC_PROGRESSION",
-                    "patient_id": patient_id,
-                    "from_stage": timeline[i - 1].bclc_stage,
-                    "to_stage": timeline[i].bclc_stage,
-                    "date": timeline[i].date,
-                })
-            elif curr < prev:
-                alerts.append({
-                    "type": "BCLC_DOWNSTAGING",
-                    "patient_id": patient_id,
-                    "from_stage": timeline[i - 1].bclc_stage,
-                    "to_stage": timeline[i].bclc_stage,
-                    "date": timeline[i].date,
-                })
+        for previous, current in zip(timeline, timeline[1:]):
+            prev = STAGE_ORDER[previous.bclc_stage]
+            curr = STAGE_ORDER[current.bclc_stage]
+            if curr == prev:
+                continue
+            alerts.append({
+                "type": "BCLC_PROGRESSION" if curr > prev else "BCLC_LOWER_STAGE",
+                "patient_id": patient_id,
+                "from_stage": previous.bclc_stage,
+                "to_stage": current.bclc_stage,
+                "date": current.date,
+            })
         return alerts
 
     def get_cohort_summary(self) -> dict:
-        if not self.records:
-            return {"total": 0}
-        stages = {}
-        for r in self.records:
-            stages[r.bclc_stage] = stages.get(r.bclc_stage, 0) + 1
-        return {"total": len(self.records), "stage_distribution": stages}
+        distribution = {}
+        for record in self.records:
+            distribution[record.bclc_stage] = distribution.get(record.bclc_stage, 0) + 1
+        return {"total": len(self.records), "stage_distribution": distribution}
 
     def detect_ecog_change_alert(self, patient_id: str) -> List[dict]:
         timeline = self.get_timeline(patient_id)
-        if len(timeline) < 2:
-            return []
         alerts = []
-        for i in range(1, len(timeline)):
-            prev_ecog = timeline[i - 1].ecog_ps
-            curr_ecog = timeline[i].ecog_ps
-            if curr_ecog >= 2 and prev_ecog < 2:
-                alerts.append({
-                    "type": "ECOG_DECLINE_TO_TERMINAL",
-                    "patient_id": patient_id,
-                    "from_ecog": prev_ecog,
-                    "to_ecog": curr_ecog,
-                    "date": timeline[i].date,
-                    "action": "Consider BCLC-D reassessment and palliative care referral",
-                })
-            elif curr_ecog > prev_ecog:
-                alerts.append({
-                    "type": "ECOG_DECLINE",
-                    "patient_id": patient_id,
-                    "from_ecog": prev_ecog,
-                    "to_ecog": curr_ecog,
-                    "date": timeline[i].date,
-                })
+        for previous, current in zip(timeline, timeline[1:]):
+            if current.ecog_ps <= previous.ecog_ps:
+                continue
+            alerts.append({
+                "type": "ECOG_SEVERE_IMPAIRMENT" if current.ecog_ps >= 3 else "ECOG_DECLINE",
+                "patient_id": patient_id,
+                "from_ecog": previous.ecog_ps,
+                "to_ecog": current.ecog_ps,
+                "date": current.date,
+                "note": "Confirm whether ECOG change is HCC-attributable before using it for BCLC staging.",
+            })
         return alerts

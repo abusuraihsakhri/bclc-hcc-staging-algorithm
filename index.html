@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Browser-based BCLC 2026 hepatocellular carcinoma staging helper.">
+  <title>BCLC 2026 HCC Staging Helper</title>
+  <style>
+    :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f4f7fb;line-height:1.5}
+    *{box-sizing:border-box}body{margin:0}.wrap{width:min(1100px,calc(100% - 2rem));margin:auto}
+    header{padding:2.5rem 0 1.25rem}.eyebrow{font-size:.8rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#475569}
+    h1{font-size:clamp(2rem,5vw,3.5rem);line-height:1.05;margin:.35rem 0}.lede{max-width:760px;color:#475569}
+    .warning{border-left:4px solid #b45309;background:#fff7ed;padding:.9rem 1rem;border-radius:.5rem;margin:1rem 0}
+    main{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(300px,.85fr);gap:1.25rem;padding-bottom:2rem}
+    .card{background:#fff;border:1px solid #dbe3ef;border-radius:1rem;padding:1.25rem;box-shadow:0 8px 30px rgba(15,23,42,.05)}
+    fieldset{border:0;padding:0;margin:0 0 1rem}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.85rem}
+    label{display:block;font-weight:700;font-size:.9rem}input,select{width:100%;margin-top:.3rem;padding:.72rem;border:1px solid #aab8ca;border-radius:.55rem;background:#fff;color:#172033}
+    input[type="checkbox"]{width:auto;margin:0 .5rem 0 0}.check{display:flex;align-items:flex-start;font-weight:600}
+    input:focus,select:focus,button:focus-visible{outline:3px solid #93c5fd;outline-offset:2px}
+    button{border:0;border-radius:.65rem;padding:.8rem 1rem;background:#0f3d63;color:white;font-weight:800;cursor:pointer}
+    button:disabled{opacity:.55;cursor:wait}.status{font-size:.9rem;color:#475569;margin-left:.7rem}
+    .result{display:none}.result.show{display:block}.stage{font-size:3rem;font-weight:900;line-height:1;margin:.2rem 0}.muted{color:#64748b}
+    dl{display:grid;grid-template-columns:max-content 1fr;gap:.55rem .85rem;margin:1rem 0}dt{font-weight:800}dd{margin:0}
+    .error{color:#991b1b;background:#fef2f2;border:1px solid #fecaca;padding:.8rem;border-radius:.5rem}
+    footer{border-top:1px solid #dbe3ef;padding:1.5rem 0 2.5rem;color:#64748b;font-size:.9rem}
+    footer a{color:#0f3d63}.small{font-size:.86rem}.hidden{display:none!important}
+    @media(max-width:800px){main{grid-template-columns:1fr}.grid{grid-template-columns:1fr}}
+    @media(prefers-color-scheme:dark){:root{color:#e5edf7;background:#0b1220}.card{background:#111b2e;border-color:#26354c}.lede,.muted,.status,footer{color:#a8b6ca}input,select{background:#0b1220;color:#e5edf7;border-color:#52627a}.warning{background:#2b2115}.error{background:#35171b;color:#fecaca;border-color:#7f1d1d}footer{border-color:#26354c}footer a{color:#93c5fd}}
+  </style>
+</head>
+<body>
+  <header class="wrap">
+    <div class="eyebrow">Hepatocellular carcinoma · BCLC 2026</div>
+    <h1>HCC staging helper</h1>
+    <p class="lede">A reproducible browser interface to the repository's Python staging engine. Calculations run locally in your browser through Pyodide.</p>
+    <div class="warning"><strong>Research/education use.</strong> This tool does not replace radiology review, transplant-center criteria, multidisciplinary assessment, or current treatment guidelines.</div>
+  </header>
+
+  <main class="wrap">
+    <section class="card" aria-labelledby="inputs-title">
+      <h2 id="inputs-title">Stage-defining inputs</h2>
+      <form id="staging-form">
+        <div class="grid">
+          <label>Tumor count
+            <input id="tumor-count" type="number" min="1" step="1" value="1" required>
+          </label>
+          <label>Largest tumor diameter (cm)
+            <input id="tumor-size" type="number" min="0.1" step="0.1" value="3.0" required>
+          </label>
+          <label>Child-Pugh class <span class="muted">(context)</span>
+            <select id="child-pugh"><option>A</option><option>B</option><option>C</option></select>
+          </label>
+          <label>ECOG performance status
+            <select id="ecog"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select>
+          </label>
+        </div>
+
+        <fieldset>
+          <legend><strong>Stage modifiers</strong></legend>
+          <p><label class="check"><input id="ecog-related" type="checkbox" checked> ECOG impairment is attributable to HCC</label></p>
+          <p><label class="check"><input id="pvi" type="checkbox"> Portal-vein macrovascular invasion</label></p>
+          <p><label class="check"><input id="vascular" type="checkbox"> Other macrovascular invasion</label></p>
+          <p><label class="check"><input id="extrahepatic" type="checkbox"> Extrahepatic spread</label></p>
+          <p><label class="check"><input id="nodes" type="checkbox"> Metastatic lymph-node involvement</label></p>
+          <p><label class="check"><input id="decomp" type="checkbox"> Hepatic decompensation</label></p>
+        </fieldset>
+
+        <div id="transplant-wrap" class="hidden">
+          <label>Transplant candidacy <span class="muted">(must be established externally)</span>
+            <select id="transplant">
+              <option value="">Unknown / not assessed</option>
+              <option value="true">Candidate</option>
+              <option value="false">Not a candidate</option>
+            </select>
+          </label>
+          <p class="small muted">Required here only when decompensation is present because decompensation alone does not establish BCLC-D.</p>
+        </div>
+
+        <button id="calculate" type="submit" disabled>Calculate stage</button>
+        <span id="runtime-status" class="status" role="status">Loading Python runtime…</span>
+      </form>
+    </section>
+
+    <aside class="card" aria-live="polite">
+      <h2>Result</h2>
+      <div id="result-placeholder" class="muted">Enter a confirmed HCC case and calculate after the Python runtime is ready.</div>
+      <div id="error" class="error hidden"></div>
+      <div id="result" class="result">
+        <div class="eyebrow">BCLC 2026</div>
+        <div id="stage" class="stage"></div>
+        <div id="stage-name"></div>
+        <dl>
+          <dt>Milan criteria</dt><dd id="milan"></dd>
+          <dt>Expected survival</dt><dd id="survival"></dd>
+          <dt>Transplant status</dt><dd id="tx-status"></dd>
+        </dl>
+        <h3>Stage-level pathway</h3>
+        <p id="pathway"></p>
+        <h3>Interpretation</h3>
+        <p id="recommendation"></p>
+        <p class="small muted">Milan tumor-burden criteria are not synonymous with transplant eligibility.</p>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <strong>Privacy:</strong> case inputs are not submitted or stored by this application. The first load retrieves Pyodide from jsDelivr; the staging calculation itself runs in-browser.
+      <br>Reference: Reig M, et al. <em>J Hepatol.</em> 2026;84(3):631-654. <a href="https://doi.org/10.1016/j.jhep.2025.10.020" rel="noopener noreferrer">doi:10.1016/j.jhep.2025.10.020</a>
+    </div>
+  </footer>
+
+  <script>
+    "use strict";
+    const PYODIDE_BASE = "https://cdn.jsdelivr.net/pyodide/v0.29.5/full/";
+    let pyodide;
+
+    const form = document.getElementById("staging-form");
+    const button = document.getElementById("calculate");
+    const runtimeStatus = document.getElementById("runtime-status");
+    const decomp = document.getElementById("decomp");
+    const transplantWrap = document.getElementById("transplant-wrap");
+    const transplantSelect = document.getElementById("transplant");
+    const resultBox = document.getElementById("result");
+    const placeholder = document.getElementById("result-placeholder");
+    const errorBox = document.getElementById("error");
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("Unable to load the Python runtime."));
+        document.head.appendChild(script);
+      });
+    }
+
+    async function initializePython() {
+      try {
+        await loadScript(PYODIDE_BASE + "pyodide.js");
+        pyodide = await loadPyodide({ indexURL: PYODIDE_BASE });
+        const response = await fetch("./bclc_staging.py", { cache: "no-store" });
+        if (!response.ok) throw new Error("Unable to load bclc_staging.py.");
+        pyodide.FS.writeFile("bclc_staging.py", await response.text());
+        await pyodide.runPythonAsync("import bclc_staging");
+        button.disabled = false;
+        runtimeStatus.textContent = "Python ready";
+
+        if (new URLSearchParams(location.search).get("smoke") === "1") {
+          await calculate();
+          document.body.dataset.smoke = "ok";
+        }
+      } catch (error) {
+        runtimeStatus.textContent = "Runtime failed";
+        showError(error);
+      }
+    }
+
+    function optionalBool(value) {
+      if (value === "") return null;
+      return value === "true";
+    }
+
+    function payload() {
+      return {
+        tumor_count: Number.parseInt(document.getElementById("tumor-count").value, 10),
+        tumor_size_cm: Number.parseFloat(document.getElementById("tumor-size").value),
+        child_pugh_class: document.getElementById("child-pugh").value,
+        ecog_ps: Number.parseInt(document.getElementById("ecog").value, 10),
+        ecog_cancer_related: document.getElementById("ecog-related").checked,
+        portal_vein_invasion: document.getElementById("pvi").checked,
+        vascular_invasion: document.getElementById("vascular").checked,
+        extrahepatic_spread: document.getElementById("extrahepatic").checked,
+        lymph_node_metastasis: document.getElementById("nodes").checked,
+        liver_decompensation: decomp.checked,
+        transplant_candidate: optionalBool(transplantSelect.value)
+      };
+    }
+
+    async function calculate() {
+      errorBox.classList.add("hidden");
+      try {
+        const data = payload();
+        pyodide.globals.set("case_json", JSON.stringify(data));
+        const raw = await pyodide.runPythonAsync(
+          "import json; json.dumps(bclc_staging.stage_bclc(**json.loads(case_json)))"
+        );
+        pyodide.globals.delete("case_json");
+        render(JSON.parse(raw));
+      } catch (error) {
+        showError(error);
+        throw error;
+      }
+    }
+
+    function render(result) {
+      placeholder.classList.add("hidden");
+      resultBox.classList.add("show");
+      document.getElementById("stage").textContent = result.bclc_stage;
+      document.getElementById("stage-name").textContent = result.stage_name;
+      document.getElementById("milan").textContent = result.milan_criteria_eligible ? "Within tumor-burden criteria" : "Outside criteria";
+      document.getElementById("survival").textContent = result.expected_survival;
+      document.getElementById("tx-status").textContent = result.transplant_assessment;
+      document.getElementById("pathway").textContent = result.treatment_allocation;
+      document.getElementById("recommendation").textContent = result.clinical_recommendation;
+    }
+
+    function showError(error) {
+      placeholder.classList.add("hidden");
+      resultBox.classList.remove("show");
+      errorBox.textContent = String(error && error.message ? error.message : error);
+      errorBox.classList.remove("hidden");
+    }
+
+    decomp.addEventListener("change", () => {
+      transplantWrap.classList.toggle("hidden", !decomp.checked);
+      if (!decomp.checked) transplantSelect.value = "";
+    });
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      await calculate().catch(() => {});
+    });
+
+    initializePython();
+  </script>
+</body>
+</html>

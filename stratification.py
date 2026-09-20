@@ -1,74 +1,51 @@
-"""Patient stratification for BCLC HCC staging."""
-from typing import Dict, Any
+"""Stage-level treatment-pathway summaries for BCLC HCC staging."""
+from typing import Any, Dict
 
 
-def stratify_treatment(bclc_stage: str, milan_eligible: bool, child_pugh: str,
-                       ecog_ps: int, tumor_size_cm: float, tumor_count: int,
-                       portal_invasion: bool = False) -> Dict[str, Any]:
-    """Stratify patient into BCLC treatment pathway."""
-    treatment_pathway = _treatment_pathway(bclc_stage, milan_eligible, child_pugh)
-    clinical_trials = _trial_eligibility(bclc_stage, ecog_ps, child_pugh)
-    eligibility_checklist = _eligibility_checklist(bclc_stage, milan_eligible, child_pugh, ecog_ps)
+def stratify_treatment(
+    bclc_stage: str,
+    milan_eligible: bool,
+    child_pugh: str,
+    ecog_ps: int,
+    tumor_size_cm: float,
+    tumor_count: int,
+    portal_invasion: bool = False,
+) -> Dict[str, Any]:
+    """Return pathway-review flags without claiming definitive candidacy."""
+    stage = str(bclc_stage).upper()
+    if stage not in {"0", "A", "B", "C", "D"}:
+        raise ValueError(f"Invalid BCLC stage: {bclc_stage!r}")
 
     return {
-        "bclc_stage": bclc_stage,
-        "treatment_pathway": treatment_pathway,
-        "transplant_eligible": milan_eligible and child_pugh in ("A", "B") and ecog_ps <= 1,
-        "resectable": bclc_stage in ("0", "A") and child_pugh == "A" and ecog_ps == 0,
-        "tace_candidate": bclc_stage == "B" and child_pugh in ("A", "B") and ecog_ps <= 2,
-        "systemic_therapy": bclc_stage == "C",
-        "best_supportive_care": bclc_stage == "D",
-        "clinical_trial_eligible": clinical_trials,
-        "eligibility_checklist": eligibility_checklist,
+        "bclc_stage": stage,
+        "treatment_pathway": _treatment_pathway(stage),
+        "milan_criteria_eligible": bool(milan_eligible),
+        "transplant_eligible": None,
+        "transplant_evaluation_required": bool(milan_eligible or stage in {"0", "A", "B"}),
+        "resection_review": stage in {"0", "A"},
+        "locoregional_therapy_review": stage in {"0", "A", "B"},
+        "systemic_therapy_review": stage in {"B", "C"},
+        "supportive_care_review": stage == "D",
+        "clinical_trial_review": stage in {"B", "C"},
+        "input_context": {
+            "child_pugh": child_pugh,
+            "ecog_ps": ecog_ps,
+            "tumor_size_cm": tumor_size_cm,
+            "tumor_count": tumor_count,
+            "portal_invasion": portal_invasion,
+        },
+        "limitations": (
+            "Flags indicate topics for multidisciplinary review only. Definitive "
+            "treatment or transplant eligibility requires additional variables."
+        ),
     }
 
 
-def _treatment_pathway(stage, milan, child):
-    if stage == "D":
-        return "Best supportive care, palliative symptom management, hospice referral"
-    if stage == "C":
-        return "First-line: atezolizumab + bevacizumab. Second-line: sorafenib/lenvatinib/ramucirumab"
-    if stage == "B":
-        if milan:
-            return "TACE → reassess for transplant if downstaged to within Milan"
-        return "TACE (standard of care). Repeat TACE q6-8 weeks. Assess for transplant eligibility."
-    if stage == "A":
-        if milan:
-            return "Liver transplant (preferred) or surgical resection if adequate liver reserve"
-        return "Surgical resection. Consider living donor transplant if available."
-    return "Curative resection or local ablation (RFA/MWA)"
-
-
-def _trial_eligibility(stage, ecog, child):
-    if child == "C" or ecog >= 3:
-        return ["Palliative-only trials"]
-    trials = []
-    if stage in ("C", "B"):
-        trials.append("Immunotherapy combination trials")
-        trials.append("Targeted therapy trials")
-    if stage in ("0", "A", "B"):
-        trials.append("Adjuvant therapy trials")
-        trials.append("Locoregional therapy trials")
-    return trials
-
-
-def _eligibility_checklist(stage, milan, child, ecog):
-    checklist = []
-    if stage in ("0", "A"):
-        checklist.append(("CT/MRI staging", True))
-        checklist.append(("Liver function assessment", child == "A"))
-        checklist.append(("ECOG performance status", ecog <= 1))
-        checklist.append(("Milan criteria", milan))
-        checklist.append(("Vascular invasion assessment", True))
-    elif stage == "B":
-        checklist.append(("TACE candidacy", child in ("A", "B")))
-        checklist.append(("Transplant evaluation", milan))
-        checklist.append(("ECOG assessment", ecog <= 2))
-    elif stage == "C":
-        checklist.append(("Systemic therapy eligibility", True))
-        checklist.append(("Clinical trial screening", True))
-        checklist.append(("Liver function preserved", child in ("A", "B")))
-    else:
-        checklist.append(("Palliative care referral", True))
-        checklist.append(("Symptom management plan", True))
-    return checklist
+def _treatment_pathway(stage: str) -> str:
+    return {
+        "0": "Very-early-stage pathway: evaluate ablation or resection and liver/transplant context",
+        "A": "Early-stage pathway: evaluate resection, ablation, and liver transplantation",
+        "B": "Intermediate-stage pathway: subgroup for transplant, locoregional, or systemic treatment",
+        "C": "Advanced-stage pathway: systemic therapy is the usual evidence-based first option",
+        "D": "Supportive/palliative-care pathway; review transplant context when relevant",
+    }[stage]

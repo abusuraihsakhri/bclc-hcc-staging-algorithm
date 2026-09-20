@@ -1,105 +1,105 @@
-# Barcelona Clinic Liver Cancer (BCLC) HCC Staging Algorithm
+# BCLC HCC Staging Algorithm
 
-A clinically validated, pure Python staging and treatment allocation engine for hepatocellular carcinoma (HCC) based on the **2022 updated BCLC Staging and Treatment Strategy** (Reig et al., *Journal of Hepatology* 2022) and international EASL / AASLD clinical practice guidelines.
+A zero-runtime-dependency Python implementation of the **Barcelona Clinic Liver Cancer (BCLC) 2026** stage-defining framework for confirmed hepatocellular carcinoma (HCC), with CLI, CSV batch processing, longitudinal helpers, regression tests, and a browser interface powered by Pyodide.
 
----
+> **Scope:** education, research, reproducible data processing, and software validation. This repository does not replace multidisciplinary clinical assessment, transplant-center criteria, or current treatment guidelines.
 
-## Clinical Staging Architecture
+## What it implements
 
-The BCLC system integrates three critical prognostic pillars:
-1. **Tumor Burden**: Number of nodules, maximum nodule diameter (cm), macrovascular portal vein invasion (PVI), and extrahepatic spread (EHS).
-2. **Liver Function Reserve**: Child-Pugh class (A, B, or C).
-3. **General Performance Status**: Eastern Cooperative Oncology Group (ECOG PS 0–4).
+The core engine uses tumor burden, macrovascular invasion / metastatic spread, HCC-attributable ECOG performance status, and decompensation/transplant context to assign BCLC stage 0, A, B, C, or D.
 
-### Staging Rules & Treatment Allocations
+Important 2026 boundaries implemented in the test suite include:
 
-| BCLC Stage | Category | Tumor Burden | Liver Function | ECOG PS | Primary Treatment Allocation | Median Survival | 5-Year Survival |
-|:---|:---|:---|:---|:---|:---|:---|:---|
-| **0** | **Very Early** | Solitary nodule $\le 2\text{ cm}$ | Child-Pugh A | 0 | Surgical Resection or Local Ablation (RFA/MWA) | $> 60\text{ months}$ | ~70% |
-| **A** | **Early** | Solitary nodule (any size) OR $\le 3$ nodules each $\le 3\text{ cm}$ | Child-Pugh A–B | 0 | Liver Transplantation, Resection, or Ablation | $> 36\text{ months}$ | ~50% |
-| **B** | **Intermediate** | Multifocal / multinodular ($>3$ nodules OR $>1$ nodule $>3\text{ cm}$) without vascular invasion | Child-Pugh A–B | 0 | Transarterial Chemoembolization (TACE) / systemic combination | ~20–30 months | ~25% |
-| **C** | **Advanced** | Macrovascular invasion (PVI/vascular) OR Extrahepatic spread (N1/M1) | Child-Pugh A–B | 1–2 | First-line Systemic Therapy (Atezolizumab + Bevacizumab, Tremelimumab + Durvalumab, Sorafenib, Lenvatinib) | ~12–19 months | ~10% |
-| **D** | **Terminal** | Any tumor burden | Child-Pugh C | 3–4 | Best Supportive Care (Palliative / Hospice); Transplant only if Milan-eligible with sole Child-Pugh C criterion | $< 3\text{ months}$ | ~0% |
+- **BCLC 0:** one tumor up to 2 cm, without advanced-stage features.
+- **BCLC A:** one tumor over 2 cm with no upper size cutoff, or up to 3 tumors with none over 3 cm.
+- **BCLC B:** multifocal disease with more than 3 tumors, or 2–3 tumors with at least one over 3 cm, without BCLC-C/D features.
+- **BCLC C:** macrovascular invasion, extrahepatic/metastatic spread, or HCC-attributable ECOG 1–2.
+- **BCLC D:** severe HCC-attributable performance-status impairment or decompensated liver disease when transplantation is not an option.
 
----
-
-## Milan Criteria for Liver Transplantation
-
-The engine automatically evaluates eligibility for cadaveric or living-donor liver transplantation under the Mazzaferro (1996) **Milan Criteria**:
-- **Single nodule**: Diameter $\le 5.0\text{ cm}$
-- **Multiple nodules**: $\le 3$ nodules, each with diameter $\le 3.0\text{ cm}$
-- **Exclusions**: Absence of macrovascular portal vein invasion and absence of extrahepatic metastases
-
----
+Child-Pugh class is retained as descriptive/compatibility input, but it is not used alone to force a BCLC stage.
 
 ## Features
 
-- **2022 BCLC Precision:** Full support for very early (0), early (A), intermediate (B), advanced (C), and terminal (D) staging.
-- **Milan Transplantation Calculator:** Instant organ allocation candidacy verification.
-- **Batch CSV Processing:** High-throughput batch triage for multidisciplinary liver tumor boards.
-- **Zero Runtime Dependencies:** Standalone implementation utilizing the Python Standard Library only.
+- BCLC 2026 staging with explicit boundary validation.
+- Milan tumor-burden screening with macrovascular/metastatic exclusions.
+- Transplant candidacy kept separate from Milan criteria.
+- Single-case JSON CLI output.
+- CSV batch processing with row-level validation errors.
+- Longitudinal stage tracking and current OPTN HCC downstaging screening helper.
+- Dependency-free stress/smoke simulator.
+- Static browser UI that executes the same Python module through Pyodide.
+- GitHub Actions regression matrix for Python 3.10–3.14 and a headless-browser Pyodide smoke test.
 
----
+## CLI
 
-## Installation & Requirements
-
-- Python 3.10+ (tested on 3.10, 3.11, 3.12)
-- Zero external runtime dependencies.
+No runtime package installation is required.
 
 ```bash
-git clone https://github.com/abusuraihsakhri/bclc-hcc-staging-algorithm.git
-cd bclc-hcc-staging-algorithm
+python cli.py single \
+  --tumor-count 1 \
+  --tumor-size-cm 6 \
+  --child-pugh-class A \
+  --ecog-ps 0
 ```
 
----
+Batch processing:
 
-## CLI Usage
-
-### 1. Stage a Single HCC Patient
-```bash
-python cli.py single --tumor-count 1 --tumor-size-cm 1.8 --child-pugh-class A --ecog-ps 0
-```
-
-### 2. Evaluate an Advanced Case
-```bash
-python cli.py single --tumor-count 2 --tumor-size-cm 4.5 --child-pugh-class B --ecog-ps 1 --portal-vein-invasion
-```
-
-### 3. Batch Process Patient Cohorts from CSV
 ```bash
 python cli.py batch --input sample.csv --output results.csv
 ```
 
----
+Use `python cli.py single --help` for decompensation, transplant-context, invasion, spread, and ECOG-attribution flags.
 
-## Python API Quickstart
+## Python API
 
 ```python
 from bclc_staging import stage_bclc
 
-# Stage patient with multifocal HCC
 result = stage_bclc(
     tumor_count=3,
     tumor_size_cm=2.5,
     child_pugh_class="A",
     ecog_ps=0,
     portal_vein_invasion=False,
-    extrahepatic_spread=False
+    extrahepatic_spread=False,
 )
 
-print(f"BCLC Stage: {result['bclc_stage']} ({result['stage_name']})")
-print(f"Allocation: {result['treatment_allocation']}")
-print(f"Milan Eligible: {result['milan_criteria_eligible']}")
-print(f"5-Year Survival: {result['five_year_survival_pct']}%")
+print(result["classification"])
+print(result["milan_criteria_eligible"])
 ```
 
----
+## Browser application
 
-## Testing & Verification
+`index.html` loads Pyodide 0.29.5 and imports the repository's `bclc_staging.py` directly. The browser UI therefore does not maintain a separate JavaScript copy of the staging rules.
 
-Run the comprehensive unit test suite:
+Case inputs are not stored or submitted by the application. Initial page load downloads the Pyodide runtime from jsDelivr; calculations then execute in the browser.
+
+## Testing
 
 ```bash
-python -m pytest -p no:zarr
+python -m pip install pytest
+python -m compileall -q .
+python -m pytest -q
+python simulator.py 25
 ```
 
+CI additionally exercises the CLI, sample CSV workflow, Python 3.10–3.14, and the browser/Pyodide path in headless Chrome.
+
+## Clinical and technical limitations
+
+- Assumes HCC has already been established; it is not a diagnostic model.
+- ECOG-based upstaging should reflect symptoms attributable to HCC rather than unrelated disability.
+- `vascular_invasion` is treated as **macrovascular** invasion for backward compatibility.
+- Milan criteria do not establish transplant eligibility by themselves.
+- OPTN downstaging output is a screening aid; current OPTN policy and transplant-center review are authoritative.
+- Treatment strings are stage-level pathway summaries, not patient-specific prescriptions.
+- No outcome model or individualized survival prediction is implemented.
+
+## References
+
+1. Reig M, et al. BCLC strategy for prognosis prediction and treatment recommendations: The 2026 update. *Journal of Hepatology*. 2026;84(3):631-654. doi:10.1016/j.jhep.2025.10.020
+2. OPTN Policies, Policy 9.5.I: Requirements for Hepatocellular Carcinoma (HCC) MELD or PELD Score Exceptions. Current policy should be checked before clinical or allocation use.
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
