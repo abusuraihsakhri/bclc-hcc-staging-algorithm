@@ -1132,6 +1132,7 @@
         if (query.get("smoke") === "1") {
           await calculate();
           document.body.dataset.smoke = "ok";
+          document.body.dataset.analyzeReady = button.disabled ? "disabled" : "ok";
         }
       } catch (error) {
         button.disabled = true;
