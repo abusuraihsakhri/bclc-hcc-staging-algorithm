@@ -29,6 +29,7 @@ Child-Pugh class is retained as descriptive/compatibility input, but it is not u
 - CSV batch processing with row-level validation errors.
 - Longitudinal stage tracking and current OPTN HCC downstaging screening helper.
 - Dependency-free stress/smoke simulator.
+- Modern light-first browser UI with an explicit persistent dark-mode option.
 - Static browser UI that executes the same Python module through Pyodide.
 - GitHub Actions regression matrix for Python 3.10–3.14 and a headless-browser Pyodide smoke test.
 
@@ -72,9 +73,9 @@ print(result["milan_criteria_eligible"])
 
 ## Browser application
 
-`index.html` loads Pyodide 0.29.5 and imports the repository's `bclc_staging.py` directly. The browser UI therefore does not maintain a separate JavaScript copy of the staging rules.
+`index.html` provides a responsive light-first interface with an explicit light/dark theme toggle, compact stage-defining inputs, accessible focus states, and a sticky result panel on larger screens. It loads Pyodide 0.29.5 and imports the repository's `bclc_staging.py` directly, so the browser UI does not maintain a separate JavaScript copy of the staging rules.
 
-Case inputs are not stored or submitted by the application. Initial page load downloads the Pyodide runtime from jsDelivr; calculations then execute in the browser.
+Case inputs are not stored or submitted by the application. The selected UI theme may be stored locally in the browser. Initial page load downloads the Pyodide runtime from jsDelivr; calculations then execute in the browser.
 
 ## Testing
 
