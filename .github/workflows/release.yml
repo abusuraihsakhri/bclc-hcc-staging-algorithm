@@ -1,0 +1,51 @@
+name: Publish v1.0.0 Release
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish release if absent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v1.0.0
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to do."
+            exit 0
+          fi
+
+          cat > /tmp/release-notes.md <<'EOF'
+          ## BCLC HCC Staging Algorithm v1.0.0
+
+          First validated production release aligned with the BCLC 2026 staging framework.
+
+          ### Highlights
+          - Corrected solitary-tumor and multifocal BCLC stage boundaries.
+          - Separated Milan tumor-burden criteria from transplant candidacy.
+          - Added explicit HCC-attributable ECOG handling and decompensation/transplant context.
+          - Unified longitudinal staging with the core engine.
+          - Updated OPTN HCC downstaging screening logic.
+          - Added strict CSV validation and row-level errors.
+          - Replaced broken simulator dependencies with a dependency-free smoke/stress simulator.
+          - Removed nonfunctional generated enrichment scaffolding.
+          - Added a Pyodide browser interface using the same Python staging engine.
+          - Expanded CI to Python 3.10-3.14 plus a headless-browser Pyodide smoke test.
+
+          ### Verification
+          Production CI passed 37 tests, CLI smoke tests, sample batch processing, simulator checks, and browser execution.
+
+          ### Scope
+          Intended for education, research, reproducible data processing, and software validation. It is not a substitute for multidisciplinary clinical assessment, transplant-center criteria, or current treatment guidelines.
+          EOF
+
+          gh release create "$TAG"             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "v1.0.0 — BCLC 2026 staging and browser release"             --notes-file /tmp/release-notes.md
