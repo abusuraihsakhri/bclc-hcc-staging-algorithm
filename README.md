@@ -1,5 +1,7 @@
 # BCLC HCC Staging Algorithm
 
+### [Open the Live Application →](https://abusuraihsakhri.github.io/bclc-hcc-staging-algorithm/)
+
 A zero-runtime-dependency Python implementation of the **Barcelona Clinic Liver Cancer (BCLC) 2026** stage-defining framework for confirmed hepatocellular carcinoma (HCC), with CLI, CSV batch processing, longitudinal helpers, regression tests, and a browser interface powered by Pyodide.
 
 > **Scope:** education, research, reproducible data processing, and software validation. This repository does not replace multidisciplinary clinical assessment, transplant-center criteria, or current treatment guidelines.
