@@ -404,6 +404,7 @@
     .small { font-size: .78rem; }
     .muted { color: var(--text-faint); }
 
+    .form-content { min-width: 0; }
     .form-actions {
       display: flex;
       align-items: center;
@@ -638,6 +639,30 @@
         padding-bottom: 10px;
       }
       .card { max-height: 100%; }
+      #input-panel {
+        height: 100%;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+      }
+      #input-panel .card-body {
+        min-height: 0;
+        overflow: hidden;
+        padding-top: 11px;
+        padding-bottom: 12px;
+      }
+      #staging-form {
+        height: 100%;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) auto;
+      }
+      #staging-form .form-content {
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: none;
+      }
+      #staging-form .form-content::-webkit-scrollbar { display: none; }
       .card-header { padding-top: 10px; padding-bottom: 9px; }
       .card-body { padding-top: 11px; padding-bottom: 12px; }
       .result-body { min-height: 0; }
@@ -675,7 +700,13 @@
       .check-item input { width: 15px; height: 15px; }
       .conditional { margin-top: 6px; padding: 6px 8px; }
       .conditional .small { display: none; }
-      .form-actions { margin-top: 7px; gap: 8px; }
+      .form-actions {
+        margin: 6px -2px 0;
+        padding: 6px 2px 0;
+        gap: 8px;
+        border-top: 1px solid var(--border);
+        background: var(--surface);
+      }
       .primary-button { min-height: 36px; padding-inline: 12px; font-size: .78rem; }
       .action-help { display: none; }
       .stage { font-size: 2.2rem; }
@@ -761,6 +792,21 @@
       .card-header h2 { font-size: .9rem; }
       .card-kicker { display: none; }
       .card-body { height: calc(100% - 39px); padding: 8px 10px; overflow: hidden; }
+      #input-panel .card-body { display: block; }
+      #staging-form {
+        height: 100%;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) auto;
+      }
+      #staging-form .form-content {
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: none;
+        padding-right: 1px;
+      }
+      #staging-form .form-content::-webkit-scrollbar { display: none; }
       .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; }
       .field label, .select-field label { margin-bottom: 2px; font-size: .67rem; }
       input[type="number"], select { min-height: 40px; padding: 6px 8px; border-radius: 8px; }
@@ -771,8 +817,18 @@
       .check-item input { width: 16px; height: 16px; }
       .conditional { margin-top: 6px; padding: 6px 8px; }
       .conditional .small { display: none; }
-      .form-actions { margin-top: 7px; gap: 7px; flex-direction: row; align-items: center; }
-      .primary-button { min-height: 40px; width: auto; flex: 1 1 auto; font-size: .76rem; padding-inline: 10px; }
+      .form-actions {
+        position: relative;
+        z-index: 4;
+        margin: 7px -2px 0;
+        padding: 7px 2px max(2px, env(safe-area-inset-bottom));
+        gap: 7px;
+        flex-direction: row;
+        align-items: center;
+        border-top: 1px solid var(--border);
+        background: var(--surface);
+      }
+      .primary-button { min-height: 42px; width: auto; flex: 1 1 auto; font-size: .78rem; padding-inline: 10px; }
       .action-help { display: none; }
       .result-body { min-height: 0; }
       .empty-state { min-height: 100%; padding: 12px; }
@@ -866,6 +922,7 @@
         </div>
         <div class="card-body">
           <form id="staging-form">
+            <div class="form-content">
             <div class="form-grid">
               <div class="field">
                 <label for="tumor-count">Tumor count</label>
@@ -937,8 +994,9 @@
               <div class="small muted" style="margin-top:7px">Required here only when decompensation is present because decompensation alone does not establish BCLC-D.</div>
             </div>
 
+            </div>
             <div class="form-actions">
-              <button id="calculate" class="primary-button" type="submit" disabled>Calculate BCLC stage</button>
+              <button id="calculate" class="primary-button" type="submit" disabled>Analyze case</button>
               <div class="action-help">Uses the same <code>bclc_staging.py</code> engine as the CLI.</div>
             </div>
           </form>
@@ -1104,6 +1162,7 @@
         if (query.get("smoke") === "1") {
           await calculate();
           document.body.dataset.smoke = "ok";
+          document.body.dataset.analyzeReady = button.disabled ? "disabled" : "ok";
         }
       } catch (error) {
         button.disabled = true;
@@ -1192,12 +1251,24 @@
       const rootBox = document.documentElement;
       const fitsHeight = rootBox.scrollHeight <= window.innerHeight + 2;
       const fitsWidth = rootBox.scrollWidth <= window.innerWidth + 2;
+      const rect = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+      const analyzeVisible =
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.top >= -1 &&
+        rect.bottom <= window.innerHeight + 1;
       document.body.dataset.layoutFit = fitsHeight && fitsWidth ? "ok" : "overflow";
+      document.body.dataset.analyzeVisible = analyzeVisible ? "ok" : "hidden";
     }
 
     if (query.get("layouttest") === "1") {
+      button.disabled = false;
+      setMobilePanel("input");
       setRuntimeState("ready", "Layout ready");
-      requestAnimationFrame(() => requestAnimationFrame(markLayoutFit));
+      markLayoutFit();
     } else {
       initializePython();
     }
