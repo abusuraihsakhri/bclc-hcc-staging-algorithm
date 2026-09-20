@@ -56,7 +56,7 @@ jobs:
           grep -q 'data-theme="light"' index.html
           grep -q 'bclc-theme' index.html
           grep -q 'id="tab-input"' index.html
-          grep -q 'data-layout-fit' index.html
+          grep -q 'layoutFit' index.html
 
       - name: Start local site
         run: |
