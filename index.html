@@ -1268,7 +1268,7 @@
       button.disabled = false;
       setMobilePanel("input");
       setRuntimeState("ready", "Layout ready");
-      requestAnimationFrame(() => requestAnimationFrame(markLayoutFit));
+      markLayoutFit();
     } else {
       initializePython();
     }
