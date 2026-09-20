@@ -82,7 +82,25 @@ jobs:
           for viewport in "390,844" "360,640" "844,390" "768,1024" "1366,768"; do
             echo "Testing viewport $viewport"
             safe_name="$(echo "$viewport" | tr ',' 'x')"
-            "$BROWSER"               --headless=new               --no-sandbox               --disable-gpu               --disable-dev-shm-usage               --window-size="$viewport"               --force-device-scale-factor=1               --user-data-dir="/tmp/chrome-$safe_name"               --virtual-time-budget=2000               --dump-dom "http://127.0.0.1:8000/?layouttest=1" > "/tmp/layout-$safe_name.html"
+            success=false
+            for attempt in 1 2 3; do
+              if "$BROWSER" \
+                --headless=new \
+                --no-sandbox \
+                --disable-gpu \
+                --disable-dev-shm-usage \
+                --no-first-run \
+                --force-device-scale-factor=1 \
+                --window-size="$viewport" \
+                --virtual-time-budget=2000 \
+                --dump-dom "http://127.0.0.1:8000/?layouttest=1" > "/tmp/layout-$safe_name.html"; then
+                success=true
+                break
+              fi
+              echo "Chromium retry $attempt for $viewport"
+              sleep 1
+            done
+            test "$success" = true
             if ! grep -q 'data-layout-fit="ok"' "/tmp/layout-$safe_name.html"; then
               grep -o 'data-layout-fit="[^"]*"' "/tmp/layout-$safe_name.html" || true
               exit 1
